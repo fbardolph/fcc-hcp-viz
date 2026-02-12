@@ -102,6 +102,17 @@
         .ctrl-btn:hover { background: #374151; color: #fff; }
         .ctrl-btn.active { background: #2563eb; border-color: #3b82f6; color: #fff; }
         .ctrl-btn.active-purple { background: #7c3aed; border-color: #8b5cf6; color: #fff; }
+        .ctrl-btn .kbd {
+            font-size: 0.68rem;
+            color: #9ca3af;
+            margin-left: 4px;
+        }
+        .hidden-count {
+            font-size: 0.78rem;
+            color: #6b7280;
+            margin-left: auto;
+            font-variant-numeric: tabular-nums;
+        }
 
         /* Slider controls */
         .slider-section {
@@ -264,7 +275,7 @@
 
 <header>
     <h1>FCC vs HCP Crystal Structures</h1>
-    <p>Interactive 3D comparison &mdash; click and drag to rotate, scroll to zoom</p>
+    <p>Interactive 3D comparison &mdash; drag to rotate, scroll to zoom, click an atom to hide it, <kbd>Ctrl+Z</kbd> unhide, <kbd>Ctrl+Y</kbd> re-hide</p>
 </header>
 
 <div class="main-container">
@@ -276,9 +287,11 @@
         </div>
         <div class="canvas-wrap" id="fcc-canvas"></div>
         <div class="controls">
-            <button class="ctrl-btn active" data-target="fcc" data-action="layers">Show Layers</button>
             <button class="ctrl-btn" data-target="fcc" data-action="unitcell">Unit Cell</button>
+            <button class="ctrl-btn" data-target="fcc" data-action="unhide-last">Unhide Last <span class="kbd">Ctrl+Z</span></button>
+            <button class="ctrl-btn" data-target="fcc" data-action="unhide-all">Unhide All</button>
             <button class="ctrl-btn" data-target="fcc" data-action="reset">Reset View</button>
+            <span class="hidden-count" id="fcc-hidden-count"></span>
         </div>
         <div class="slider-section">
             <h4>Slice Planes</h4>
@@ -313,9 +326,11 @@
         </div>
         <div class="canvas-wrap" id="hcp-canvas"></div>
         <div class="controls">
-            <button class="ctrl-btn active-purple" data-target="hcp" data-action="layers">Show Layers</button>
             <button class="ctrl-btn" data-target="hcp" data-action="unitcell">Unit Cell</button>
+            <button class="ctrl-btn" data-target="hcp" data-action="unhide-last">Unhide Last <span class="kbd">Ctrl+Z</span></button>
+            <button class="ctrl-btn" data-target="hcp" data-action="unhide-all">Unhide All</button>
             <button class="ctrl-btn" data-target="hcp" data-action="reset">Reset View</button>
+            <span class="hidden-count" id="hcp-hidden-count"></span>
         </div>
         <div class="slider-section">
             <h4>Slice Planes</h4>
@@ -432,8 +447,60 @@ const COL_C = 0xc084fc;  // purple
 const BASE_RADIUS = 0.35;
 const CLIP_MAX = 4; // slider max = "off"
 
+// ─── Hidden-atom stacks (per panel) with redo support ───
+const hiddenStacks = { fcc: [], hcp: [] };
+const redoStacks   = { fcc: [], hcp: [] };
+
+function updateHiddenCount(target) {
+    const el = document.getElementById(`${target}-hidden-count`);
+    const n = hiddenStacks[target].length;
+    el.textContent = n > 0 ? `${n} hidden` : '';
+}
+
+function hideAtom(target, atom) {
+    atom.visible = false;
+    hiddenStacks[target].push(atom);
+    redoStacks[target].length = 0; // new hide clears redo history
+    updateHiddenCount(target);
+}
+
+function unhideLast(target) {
+    const stack = hiddenStacks[target];
+    if (stack.length === 0) return;
+    const atom = stack.pop();
+    atom.visible = true;
+    redoStacks[target].push(atom);
+    updateHiddenCount(target);
+}
+
+function redoHide(target) {
+    const stack = redoStacks[target];
+    if (stack.length === 0) return;
+    const atom = stack.pop();
+    atom.visible = false;
+    hiddenStacks[target].push(atom);
+    updateHiddenCount(target);
+}
+
+function unhideAll(target) {
+    redoStacks[target].length = 0;
+    const stack = hiddenStacks[target];
+    while (stack.length > 0) {
+        stack.pop().visible = true;
+    }
+    updateHiddenCount(target);
+}
+
+// Check if a world-space point is visible (not clipped) given the panel's clip planes
+function isPointVisible(point, clipPlanes) {
+    for (const plane of clipPlanes) {
+        if (plane.distanceToPoint(point) < -0.01) return false;
+    }
+    return true;
+}
+
 // ─── Helper: create a scene inside a container ───
-function createViewer(containerId) {
+function createViewer(containerId, panelId) {
     const container = document.getElementById(containerId);
     const w = container.clientWidth, h = container.clientHeight;
 
@@ -467,6 +534,39 @@ function createViewer(containerId) {
     dl.position.set(5, 8, 5);
     scene.add(dl);
 
+    // ─── Raycaster for click-to-hide ───
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let pointerDownPos = null;
+
+    container.addEventListener('pointerdown', (e) => {
+        pointerDownPos = { x: e.clientX, y: e.clientY };
+    });
+
+    container.addEventListener('pointerup', (e) => {
+        if (!pointerDownPos) return;
+        // Only treat as click if pointer barely moved (not a drag)
+        const dx = e.clientX - pointerDownPos.x;
+        const dy = e.clientY - pointerDownPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 4) return;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(scene.children, true);
+
+        for (const hit of intersects) {
+            if (hit.object.isMesh && hit.object.visible) {
+                // Skip atoms whose hit point is on the clipped (invisible) side
+                if (!isPointVisible(hit.point, clipPlanes)) continue;
+                hideAtom(panelId, hit.object);
+                break;
+            }
+        }
+    });
+
     function animate() {
         requestAnimationFrame(animate);
         controls.update();
@@ -481,7 +581,7 @@ function createViewer(containerId) {
         renderer.setSize(nw, nh);
     });
 
-    return { scene, camera, controls, renderer, clipPlanes };
+    return { scene, camera, controls, renderer, clipPlanes, container };
 }
 
 // ─── Sphere factory (with clipping support) ───
@@ -493,10 +593,10 @@ function makeSphere(color, clipPlanes) {
         metalness: 0.4,
         clippingPlanes: clipPlanes,
         clipShadows: true,
-        side: THREE.DoubleSide, // show interior cross-section
+        side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData.baseScale = 1.0; // track intended scale
+    mesh.userData.baseScale = 1.0;
     return mesh;
 }
 
@@ -537,7 +637,6 @@ function buildFCC(scene, clipPlanes) {
         hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms);
     });
 
-    // Center the structure
     const box = new THREE.Box3().setFromObject(layerGroup);
     const center = box.getCenter(new THREE.Vector3());
     layerGroup.position.sub(center);
@@ -607,7 +706,6 @@ function buildHCP(scene, clipPlanes) {
     const center = box.getCenter(new THREE.Vector3());
     layerGroup.position.sub(center);
 
-    // Hexagonal prism unit cell wireframe
     const a = 1.0;
     const c = spacing * 2;
     const hexPoints = [];
@@ -661,8 +759,8 @@ function buildHCP(scene, clipPlanes) {
 }
 
 // ─── Initialize viewers ───
-const fccViewer = createViewer('fcc-canvas');
-const hcpViewer = createViewer('hcp-canvas');
+const fccViewer = createViewer('fcc-canvas', 'fcc');
+const hcpViewer = createViewer('hcp-canvas', 'hcp');
 
 const fccGroups = buildFCC(fccViewer.scene, fccViewer.clipPlanes);
 const hcpGroups = buildHCP(hcpViewer.scene, hcpViewer.clipPlanes);
@@ -672,8 +770,8 @@ const groups  = { fcc: fccGroups, hcp: hcpGroups };
 
 // ─── Button controls ───
 const state = {
-    fcc: { layers: true, unitcell: false },
-    hcp: { layers: true, unitcell: false },
+    fcc: { unitcell: false },
+    hcp: { unitcell: false },
 };
 
 document.querySelectorAll('.ctrl-btn').forEach(btn => {
@@ -687,21 +785,15 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
         if (action === 'reset') {
             v.camera.position.set(5, 5, 7);
             v.controls.reset();
-            // Also reset clip sliders
+            // Reset clip sliders
             document.querySelectorAll(`input[data-target="${target}"][data-axis]`).forEach(sl => {
                 if (sl.dataset.axis === 'size') return;
                 sl.value = CLIP_MAX;
                 document.getElementById(`${target}-${sl.dataset.axis}-val`).textContent = 'Off';
             });
-            const axisIdx = { x: 0, y: 1, z: 2 };
-            Object.values(axisIdx).forEach(i => { v.clipPlanes[i].constant = CLIP_MAX; });
+            const axMap = { x: 0, y: 1, z: 2 };
+            Object.values(axMap).forEach(i => { v.clipPlanes[i].constant = CLIP_MAX; });
             return;
-        }
-
-        if (action === 'layers') {
-            state[target].layers = !state[target].layers;
-            g.layerGroup.visible = state[target].layers;
-            btn.classList.toggle(activeClass);
         }
 
         if (action === 'unitcell') {
@@ -709,7 +801,36 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
             g.unitCellGroup.visible = state[target].unitcell;
             btn.classList.toggle(activeClass);
         }
+
+        if (action === 'unhide-last') {
+            unhideLast(target);
+        }
+
+        if (action === 'unhide-all') {
+            unhideAll(target);
+        }
     });
+});
+
+// ─── Keyboard shortcut: Ctrl+Z to unhide last ───
+// Determine which panel the mouse is hovering over
+let hoveredPanel = null;
+
+for (const [id, v] of Object.entries(viewers)) {
+    v.container.addEventListener('pointerenter', () => { hoveredPanel = id; });
+    v.container.addEventListener('pointerleave', () => { if (hoveredPanel === id) hoveredPanel = null; });
+}
+
+document.addEventListener('keydown', (e) => {
+    if (!hoveredPanel) return;
+    if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        unhideLast(hoveredPanel);
+    }
+    if (e.ctrlKey && e.key === 'y') {
+        e.preventDefault();
+        redoHide(hoveredPanel);
+    }
 });
 
 // ─── Slider controls: clipping planes & atom size ───
@@ -722,7 +843,6 @@ document.querySelectorAll('input[type="range"][data-target]').forEach(slider => 
         const val = parseFloat(slider.value);
 
         if (axis === 'size') {
-            // Atom size: rescale all spheres
             const scaleFactor = val / BASE_RADIUS;
             const display = document.getElementById(`${target}-size-val`);
             display.textContent = val.toFixed(2);
@@ -732,12 +852,11 @@ document.querySelectorAll('input[type="range"][data-target]').forEach(slider => 
             return;
         }
 
-        // Clipping plane
         const clipPlane = viewers[target].clipPlanes[axisIdx[axis]];
         const display = document.getElementById(`${target}-${axis}-val`);
 
         if (val >= CLIP_MAX - 0.01) {
-            clipPlane.constant = 100; // effectively off
+            clipPlane.constant = 100;
             display.textContent = 'Off';
         } else {
             clipPlane.constant = val;
