@@ -453,22 +453,100 @@ const CLIP_MAX = 4;
 // ─── Shared geometries ───
 const sphereGeo = new THREE.SphereGeometry(BASE_RADIUS, 32, 32);
 
-// Rhombic dodecahedron via ConvexGeometry from its 14 vertices:
-// 8 cube vertices at (±1,±1,±1) + 6 octahedron vertices at (±2,0,0), (0,±2,0), (0,0,±2)
-// Scaled so the insphere radius ≈ BASE_RADIUS
-const RD_SCALE = BASE_RADIUS / Math.sqrt(2); // insphere radius = sqrt(2) * scale
-const rdPoints = [];
-for (let sx = -1; sx <= 1; sx += 2)
-    for (let sy = -1; sy <= 1; sy += 2)
-        for (let sz = -1; sz <= 1; sz += 2)
-            rdPoints.push(new THREE.Vector3(sx * RD_SCALE, sy * RD_SCALE, sz * RD_SCALE));
-rdPoints.push(new THREE.Vector3( 2*RD_SCALE, 0, 0));
-rdPoints.push(new THREE.Vector3(-2*RD_SCALE, 0, 0));
-rdPoints.push(new THREE.Vector3(0,  2*RD_SCALE, 0));
-rdPoints.push(new THREE.Vector3(0, -2*RD_SCALE, 0));
-rdPoints.push(new THREE.Vector3(0, 0,  2*RD_SCALE));
-rdPoints.push(new THREE.Vector3(0, 0, -2*RD_SCALE));
-const rhombicGeo = new ConvexGeometry(rdPoints);
+// ─── Voronoi cell computation from actual nearest-neighbor vectors ───
+// Constants for hex-layer geometry
+const S3_2 = Math.sqrt(3) / 2;   // 0.8660
+const S3_6 = Math.sqrt(3) / 6;   // 0.2887
+const S3_3 = Math.sqrt(3) / 3;   // 0.5774
+const DY   = Math.sqrt(2 / 3);   // 0.8165 — vertical layer spacing
+
+// 6 in-plane nearest neighbors (identical for FCC and HCP)
+const inPlaneNN = [
+    [1, 0, 0], [-1, 0, 0],
+    [0.5, 0, S3_2], [-0.5, 0, S3_2],
+    [0.5, 0, -S3_2], [-0.5, 0, -S3_2],
+];
+
+// FCC A-layer: 3 B-type neighbors above, 3 C-type neighbors below
+// C offsets are B offsets rotated 60° in the xz plane
+const fccNN = [
+    ...inPlaneNN,
+    [0.5, DY, S3_6], [-0.5, DY, S3_6], [0, DY, -S3_3],          // B above
+    [0, -DY, S3_3], [0.5, -DY, -S3_6], [-0.5, -DY, -S3_6],      // C below
+].map(v => new THREE.Vector3(...v));
+
+// HCP A-layer: 3 B-type above, 3 B-type below (y-mirror — ABABAB symmetry)
+const hcpNNA = [
+    ...inPlaneNN,
+    [0.5, DY, S3_6], [-0.5, DY, S3_6], [0, DY, -S3_3],          // B above
+    [0.5, -DY, S3_6], [-0.5, -DY, S3_6], [0, -DY, -S3_3],       // B below (mirror)
+].map(v => new THREE.Vector3(...v));
+
+// Compute Voronoi cell vertices by intersecting perpendicular bisector planes
+// of all nearest-neighbor vectors. Each triple of planes may yield a vertex;
+// a candidate is valid if it lies inside all half-spaces.
+function computeVoronoiVertices(neighbors) {
+    const verts = [];
+    const eps = 1e-6;
+    const n = neighbors.length;
+
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            for (let k = j + 1; k < n; k++) {
+                const ni = neighbors[i], nj = neighbors[j], nk = neighbors[k];
+                const di = ni.lengthSq() / 2;
+                const dj = nj.lengthSq() / 2;
+                const dk = nk.lengthSq() / 2;
+
+                // Cramer's rule for 3×3 system: n_i·p = d_i
+                const det = ni.x * (nj.y * nk.z - nj.z * nk.y)
+                          - ni.y * (nj.x * nk.z - nj.z * nk.x)
+                          + ni.z * (nj.x * nk.y - nj.y * nk.x);
+                if (Math.abs(det) < eps) continue;
+
+                const px = (di * (nj.y * nk.z - nj.z * nk.y)
+                          - ni.y * (dj * nk.z - dk * nj.z)
+                          + ni.z * (dj * nk.y - dk * nj.y)) / det;
+                const py = (ni.x * (dj * nk.z - dk * nj.z)
+                          - di * (nj.x * nk.z - nj.z * nk.x)
+                          + ni.z * (nj.x * dk - nk.x * dj)) / det;
+                const pz = (ni.x * (nj.y * dk - nk.y * dj)
+                          - ni.y * (nj.x * dk - nk.x * dj)
+                          + di * (nj.x * nk.y - nk.x * nj.y)) / det;
+
+                const p = new THREE.Vector3(px, py, pz);
+
+                // Check: point must be inside all half-spaces
+                let valid = true;
+                for (let m = 0; m < n; m++) {
+                    if (neighbors[m].dot(p) > neighbors[m].lengthSq() / 2 + eps) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (!valid) continue;
+
+                // Deduplicate
+                let isDup = false;
+                for (const v of verts) {
+                    if (v.distanceTo(p) < 0.001) { isDup = true; break; }
+                }
+                if (!isDup) verts.push(p);
+            }
+        }
+    }
+    return verts;
+}
+
+// Pre-compute Voronoi geometries
+const fccVoronoiGeo = new ConvexGeometry(computeVoronoiVertices(fccNN));
+
+const hcpVertsA = computeVoronoiVertices(hcpNNA);
+const hcpVoronoiGeoA = new ConvexGeometry(hcpVertsA);
+// HCP B-layer Voronoi = A-layer rotated 180° about the y-axis
+const hcpVoronoiGeoB = new ConvexGeometry(
+    hcpVertsA.map(v => new THREE.Vector3(-v.x, v.y, -v.z))
+);
 
 // ─── Hidden-atom stacks (per panel) with redo support ───
 const hiddenStacks = { fcc: [], hcp: [] };
@@ -525,11 +603,19 @@ function isPointVisible(point, clipPlanes) {
 const shapeMode = { fcc: 'sphere', hcp: 'sphere' };
 
 function toggleShape(target) {
-    const isSphere = shapeMode[target] === 'sphere';
-    const newGeo = isSphere ? rhombicGeo : sphereGeo;
-    shapeMode[target] = isSphere ? 'rhombic' : 'sphere';
+    const toVoronoi = shapeMode[target] === 'sphere';
+    shapeMode[target] = toVoronoi ? 'voronoi' : 'sphere';
+
     groups[target].allAtoms.forEach(atom => {
-        atom.geometry = newGeo;
+        if (!toVoronoi) {
+            atom.geometry = sphereGeo;
+        } else if (target === 'fcc') {
+            atom.geometry = fccVoronoiGeo;
+        } else {
+            // HCP: A-layer and B-layer have different Voronoi orientations
+            atom.geometry = atom.userData.layerType === 'B'
+                ? hcpVoronoiGeoB : hcpVoronoiGeoA;
+        }
     });
 }
 
@@ -630,7 +716,7 @@ function makeAtom(color, clipPlanes) {
 }
 
 // ─── Build hexagonal close-packed layer at given y ───
-function hexLayer(group, y, color, rows, cols, offsetX, offsetZ, clipPlanes, allAtoms) {
+function hexLayer(group, y, color, rows, cols, offsetX, offsetZ, clipPlanes, allAtoms, layerName) {
     const dx = 1.0;
     const dz = Math.sqrt(3) / 2;
     for (let r = -rows; r <= rows; r++) {
@@ -639,6 +725,7 @@ function hexLayer(group, y, color, rows, cols, offsetX, offsetZ, clipPlanes, all
             const z = r * dz + offsetZ;
             const atom = makeAtom(color, clipPlanes);
             atom.position.set(x, y, z);
+            atom.userData.layerType = layerName;
             group.add(atom);
             allAtoms.push(atom);
         }
@@ -659,7 +746,7 @@ function buildFCC(scene, clipPlanes) {
 
     sequence.forEach((layerName, i) => {
         const off = offsets[layerName];
-        hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms);
+        hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms, layerName);
     });
 
     const box = new THREE.Box3().setFromObject(layerGroup);
@@ -685,12 +772,14 @@ function buildFCC(scene, clipPlanes) {
     cornerPositions.forEach(p => {
         const s = makeAtom(COL_A, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.userData.layerType = 'A';
         s.position.set(...p);
         unitCellGroup.add(s); allAtoms.push(s);
     });
     facePositions.forEach(p => {
         const s = makeAtom(COL_B, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.userData.layerType = 'A';
         s.position.set(...p);
         unitCellGroup.add(s); allAtoms.push(s);
     });
@@ -714,7 +803,7 @@ function buildHCP(scene, clipPlanes) {
 
     sequence.forEach((layerName, i) => {
         const off = offsets[layerName];
-        hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms);
+        hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms, layerName);
     });
 
     const box = new THREE.Box3().setFromObject(layerGroup);
@@ -749,12 +838,14 @@ function buildHCP(scene, clipPlanes) {
     hexPoints.forEach(p => {
         const s = makeAtom(COL_A, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.userData.layerType = 'A';
         s.position.set(p.x, -c / 2, p.z);
         unitCellGroup.add(s); allAtoms.push(s);
     });
     hexPoints.forEach(p => {
         const s = makeAtom(COL_A, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.userData.layerType = 'A';
         s.position.set(p.x, c / 2, p.z);
         unitCellGroup.add(s); allAtoms.push(s);
     });
@@ -762,6 +853,7 @@ function buildHCP(scene, clipPlanes) {
         const angle = (Math.PI / 3) * (2 * i) + Math.PI / 6 + Math.PI / 3;
         const s = makeAtom(COL_B, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.userData.layerType = 'B';
         s.position.set(Math.cos(angle) * a * 0.33, 0, Math.sin(angle) * a * 0.33);
         unitCellGroup.add(s); allAtoms.push(s);
     }
