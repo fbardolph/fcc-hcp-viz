@@ -35,5 +35,16 @@ Each panel has sliders:
 - Vertical layer spacing: 0.816 (approx sqrt(2/3))
 - Hex grid: rows/cols = 2 in each direction from origin
 
-## How to Run
+## Hosting & Sharing
+- **Live URL**: https://fbardolph.github.io/fcc-hcp-viz/
+- Hosted via **GitHub Pages** (deploy from `main` branch, root folder)
+- **Repository**: https://github.com/fbardolph/fcc-hcp-viz
+- Open Graph meta tags included for link preview support (og:image points to `FCCImage.png`)
+
+## How to Run Locally
 Open `index.html` in any modern browser. No server required (uses ES module import maps).
+
+## Files
+- `index.html` — the entire application (HTML + CSS + JS in one file)
+- `FCCImage.png` — preview image used for Open Graph link previews
+- `CLAUDE.md` — this project reference file
