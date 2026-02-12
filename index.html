@@ -287,6 +287,7 @@
         </div>
         <div class="canvas-wrap" id="fcc-canvas"></div>
         <div class="controls">
+            <button class="ctrl-btn" data-target="fcc" data-action="voronoi">Rhombic Dodecahedra</button>
             <button class="ctrl-btn" data-target="fcc" data-action="unitcell">Unit Cell</button>
             <button class="ctrl-btn" data-target="fcc" data-action="unhide-last">Unhide Last <span class="kbd">Ctrl+Z</span></button>
             <button class="ctrl-btn" data-target="fcc" data-action="unhide-all">Unhide All</button>
@@ -326,6 +327,7 @@
         </div>
         <div class="canvas-wrap" id="hcp-canvas"></div>
         <div class="controls">
+            <button class="ctrl-btn" data-target="hcp" data-action="voronoi">Rhombic Dodecahedra</button>
             <button class="ctrl-btn" data-target="hcp" data-action="unitcell">Unit Cell</button>
             <button class="ctrl-btn" data-target="hcp" data-action="unhide-last">Unhide Last <span class="kbd">Ctrl+Z</span></button>
             <button class="ctrl-btn" data-target="hcp" data-action="unhide-all">Unhide All</button>
@@ -438,6 +440,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 
 // ─── Color palette ───
 const COL_A = 0x60a5fa;  // blue
@@ -445,7 +448,27 @@ const COL_B = 0x34d399;  // green
 const COL_C = 0xc084fc;  // purple
 
 const BASE_RADIUS = 0.35;
-const CLIP_MAX = 4; // slider max = "off"
+const CLIP_MAX = 4;
+
+// ─── Shared geometries ───
+const sphereGeo = new THREE.SphereGeometry(BASE_RADIUS, 32, 32);
+
+// Rhombic dodecahedron via ConvexGeometry from its 14 vertices:
+// 8 cube vertices at (±1,±1,±1) + 6 octahedron vertices at (±2,0,0), (0,±2,0), (0,0,±2)
+// Scaled so the insphere radius ≈ BASE_RADIUS
+const RD_SCALE = BASE_RADIUS / Math.sqrt(2); // insphere radius = sqrt(2) * scale
+const rdPoints = [];
+for (let sx = -1; sx <= 1; sx += 2)
+    for (let sy = -1; sy <= 1; sy += 2)
+        for (let sz = -1; sz <= 1; sz += 2)
+            rdPoints.push(new THREE.Vector3(sx * RD_SCALE, sy * RD_SCALE, sz * RD_SCALE));
+rdPoints.push(new THREE.Vector3( 2*RD_SCALE, 0, 0));
+rdPoints.push(new THREE.Vector3(-2*RD_SCALE, 0, 0));
+rdPoints.push(new THREE.Vector3(0,  2*RD_SCALE, 0));
+rdPoints.push(new THREE.Vector3(0, -2*RD_SCALE, 0));
+rdPoints.push(new THREE.Vector3(0, 0,  2*RD_SCALE));
+rdPoints.push(new THREE.Vector3(0, 0, -2*RD_SCALE));
+const rhombicGeo = new ConvexGeometry(rdPoints);
 
 // ─── Hidden-atom stacks (per panel) with redo support ───
 const hiddenStacks = { fcc: [], hcp: [] };
@@ -460,7 +483,7 @@ function updateHiddenCount(target) {
 function hideAtom(target, atom) {
     atom.visible = false;
     hiddenStacks[target].push(atom);
-    redoStacks[target].length = 0; // new hide clears redo history
+    redoStacks[target].length = 0;
     updateHiddenCount(target);
 }
 
@@ -491,7 +514,6 @@ function unhideAll(target) {
     updateHiddenCount(target);
 }
 
-// Check if a world-space point is visible (not clipped) given the panel's clip planes
 function isPointVisible(point, clipPlanes) {
     for (const plane of clipPlanes) {
         if (plane.distanceToPoint(point) < -0.01) return false;
@@ -499,16 +521,27 @@ function isPointVisible(point, clipPlanes) {
     return true;
 }
 
+// ─── Geometry toggle ───
+const shapeMode = { fcc: 'sphere', hcp: 'sphere' };
+
+function toggleShape(target) {
+    const isSphere = shapeMode[target] === 'sphere';
+    const newGeo = isSphere ? rhombicGeo : sphereGeo;
+    shapeMode[target] = isSphere ? 'rhombic' : 'sphere';
+    groups[target].allAtoms.forEach(atom => {
+        atom.geometry = newGeo;
+    });
+}
+
 // ─── Helper: create a scene inside a container ───
 function createViewer(containerId, panelId) {
     const container = document.getElementById(containerId);
     const w = container.clientWidth, h = container.clientHeight;
 
-    // Clipping planes for this viewer (X, Y, Z)
     const clipPlanes = [
-        new THREE.Plane(new THREE.Vector3(-1, 0, 0), CLIP_MAX),  // X
-        new THREE.Plane(new THREE.Vector3( 0,-1, 0), CLIP_MAX),  // Y
-        new THREE.Plane(new THREE.Vector3( 0, 0,-1), CLIP_MAX),  // Z
+        new THREE.Plane(new THREE.Vector3(-1, 0, 0), CLIP_MAX),
+        new THREE.Plane(new THREE.Vector3( 0,-1, 0), CLIP_MAX),
+        new THREE.Plane(new THREE.Vector3( 0, 0,-1), CLIP_MAX),
     ];
 
     const scene = new THREE.Scene();
@@ -528,7 +561,6 @@ function createViewer(containerId, panelId) {
     controls.minDistance = 3;
     controls.maxDistance = 20;
 
-    // Lights
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dl = new THREE.DirectionalLight(0xffffff, 0.9);
     dl.position.set(5, 8, 5);
@@ -545,7 +577,6 @@ function createViewer(containerId, panelId) {
 
     container.addEventListener('pointerup', (e) => {
         if (!pointerDownPos) return;
-        // Only treat as click if pointer barely moved (not a drag)
         const dx = e.clientX - pointerDownPos.x;
         const dy = e.clientY - pointerDownPos.y;
         if (Math.sqrt(dx * dx + dy * dy) > 4) return;
@@ -559,7 +590,6 @@ function createViewer(containerId, panelId) {
 
         for (const hit of intersects) {
             if (hit.object.isMesh && hit.object.visible) {
-                // Skip atoms whose hit point is on the clipped (invisible) side
                 if (!isPointVisible(hit.point, clipPlanes)) continue;
                 hideAtom(panelId, hit.object);
                 break;
@@ -584,9 +614,8 @@ function createViewer(containerId, panelId) {
     return { scene, camera, controls, renderer, clipPlanes, container };
 }
 
-// ─── Sphere factory (with clipping support) ───
-function makeSphere(color, clipPlanes) {
-    const geo = new THREE.SphereGeometry(BASE_RADIUS, 32, 32);
+// ─── Atom factory (shared geometry + clipping) ───
+function makeAtom(color, clipPlanes) {
     const mat = new THREE.MeshStandardMaterial({
         color,
         roughness: 0.3,
@@ -595,7 +624,7 @@ function makeSphere(color, clipPlanes) {
         clipShadows: true,
         side: THREE.DoubleSide,
     });
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(sphereGeo, mat);
     mesh.userData.baseScale = 1.0;
     return mesh;
 }
@@ -608,10 +637,10 @@ function hexLayer(group, y, color, rows, cols, offsetX, offsetZ, clipPlanes, all
         for (let c = -cols; c <= cols; c++) {
             const x = c * dx + (r % 2 !== 0 ? 0.5 : 0) + offsetX;
             const z = r * dz + offsetZ;
-            const sphere = makeSphere(color, clipPlanes);
-            sphere.position.set(x, y, z);
-            group.add(sphere);
-            allAtoms.push(sphere);
+            const atom = makeAtom(color, clipPlanes);
+            atom.position.set(x, y, z);
+            group.add(atom);
+            allAtoms.push(atom);
         }
     }
 }
@@ -624,11 +653,7 @@ function buildFCC(scene, clipPlanes) {
     const allAtoms = [];
 
     const spacing = 0.816;
-    const offsets = {
-        A: [0, 0],
-        B: [0.5, Math.sqrt(3) / 6],
-        C: [0.0, Math.sqrt(3) / 3],
-    };
+    const offsets = { A: [0, 0], B: [0.5, Math.sqrt(3) / 6], C: [0.0, Math.sqrt(3) / 3] };
     const colors = { A: COL_A, B: COL_B, C: COL_C };
     const sequence = ['A', 'B', 'C', 'A', 'B', 'C'];
 
@@ -643,10 +668,8 @@ function buildFCC(scene, clipPlanes) {
 
     // Unit cell wireframe (cubic)
     const a = 1.0;
-    const cubeGeo = new THREE.BoxGeometry(a * 1.414, a * 1.414, a * 1.414);
-    const cubeEdges = new THREE.EdgesGeometry(cubeGeo);
-    const cubeLine = new THREE.LineSegments(cubeEdges, new THREE.LineBasicMaterial({ color: 0x60a5fa, linewidth: 2, transparent: true, opacity: 0.6 }));
-    unitCellGroup.add(cubeLine);
+    const cubeEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(a * 1.414, a * 1.414, a * 1.414));
+    unitCellGroup.add(new THREE.LineSegments(cubeEdges, new THREE.LineBasicMaterial({ color: 0x60a5fa, linewidth: 2, transparent: true, opacity: 0.6 })));
 
     const facePositions = [
         [0, 0, a*0.707], [0, 0, -a*0.707],
@@ -660,25 +683,20 @@ function buildFCC(scene, clipPlanes) {
                 cornerPositions.push([x * a * 0.707, y * a * 0.707, z * a * 0.707]);
 
     cornerPositions.forEach(p => {
-        const s = makeSphere(COL_A, clipPlanes);
-        s.scale.setScalar(0.8);
-        s.userData.baseScale = 0.8;
+        const s = makeAtom(COL_A, clipPlanes);
+        s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
         s.position.set(...p);
-        unitCellGroup.add(s);
-        allAtoms.push(s);
+        unitCellGroup.add(s); allAtoms.push(s);
     });
     facePositions.forEach(p => {
-        const s = makeSphere(COL_B, clipPlanes);
-        s.scale.setScalar(0.8);
-        s.userData.baseScale = 0.8;
+        const s = makeAtom(COL_B, clipPlanes);
+        s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
         s.position.set(...p);
-        unitCellGroup.add(s);
-        allAtoms.push(s);
+        unitCellGroup.add(s); allAtoms.push(s);
     });
 
     scene.add(layerGroup);
     scene.add(unitCellGroup);
-
     return { layerGroup, unitCellGroup, allAtoms };
 }
 
@@ -690,10 +708,7 @@ function buildHCP(scene, clipPlanes) {
     const allAtoms = [];
 
     const spacing = 0.816;
-    const offsets = {
-        A: [0, 0],
-        B: [0.5, Math.sqrt(3) / 6],
-    };
+    const offsets = { A: [0, 0], B: [0.5, Math.sqrt(3) / 6] };
     const colors = { A: COL_A, B: COL_B };
     const sequence = ['A', 'B', 'A', 'B', 'A', 'B'];
 
@@ -715,7 +730,6 @@ function buildHCP(scene, clipPlanes) {
     }
 
     const lineMat = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.6 });
-
     for (let i = 0; i < 6; i++) {
         const p1 = hexPoints[i].clone(); p1.y = -c / 2;
         const p2 = hexPoints[(i + 1) % 6].clone(); p2.y = -c / 2;
@@ -733,20 +747,20 @@ function buildHCP(scene, clipPlanes) {
     }
 
     hexPoints.forEach(p => {
-        const s = makeSphere(COL_A, clipPlanes);
+        const s = makeAtom(COL_A, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
         s.position.set(p.x, -c / 2, p.z);
         unitCellGroup.add(s); allAtoms.push(s);
     });
     hexPoints.forEach(p => {
-        const s = makeSphere(COL_A, clipPlanes);
+        const s = makeAtom(COL_A, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
         s.position.set(p.x, c / 2, p.z);
         unitCellGroup.add(s); allAtoms.push(s);
     });
     for (let i = 0; i < 3; i++) {
         const angle = (Math.PI / 3) * (2 * i) + Math.PI / 6 + Math.PI / 3;
-        const s = makeSphere(COL_B, clipPlanes);
+        const s = makeAtom(COL_B, clipPlanes);
         s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
         s.position.set(Math.cos(angle) * a * 0.33, 0, Math.sin(angle) * a * 0.33);
         unitCellGroup.add(s); allAtoms.push(s);
@@ -754,7 +768,6 @@ function buildHCP(scene, clipPlanes) {
 
     scene.add(layerGroup);
     scene.add(unitCellGroup);
-
     return { layerGroup, unitCellGroup, allAtoms };
 }
 
@@ -785,7 +798,6 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
         if (action === 'reset') {
             v.camera.position.set(5, 5, 7);
             v.controls.reset();
-            // Reset clip sliders
             document.querySelectorAll(`input[data-target="${target}"][data-axis]`).forEach(sl => {
                 if (sl.dataset.axis === 'size') return;
                 sl.value = CLIP_MAX;
@@ -796,24 +808,23 @@ document.querySelectorAll('.ctrl-btn').forEach(btn => {
             return;
         }
 
+        if (action === 'voronoi') {
+            toggleShape(target);
+            btn.classList.toggle(activeClass);
+        }
+
         if (action === 'unitcell') {
             state[target].unitcell = !state[target].unitcell;
             g.unitCellGroup.visible = state[target].unitcell;
             btn.classList.toggle(activeClass);
         }
 
-        if (action === 'unhide-last') {
-            unhideLast(target);
-        }
-
-        if (action === 'unhide-all') {
-            unhideAll(target);
-        }
+        if (action === 'unhide-last') unhideLast(target);
+        if (action === 'unhide-all') unhideAll(target);
     });
 });
 
-// ─── Keyboard shortcut: Ctrl+Z to unhide last ───
-// Determine which panel the mouse is hovering over
+// ─── Keyboard shortcuts ───
 let hoveredPanel = null;
 
 for (const [id, v] of Object.entries(viewers)) {
