@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FCC vs HCP Crystal Structures</title>
+
+    <!-- Open Graph meta tags for link previews (Teams, Slack, etc.) -->
+    <meta property="og:title" content="FCC vs HCP Crystal Structures">
+    <meta property="og:description" content="Interactive 3D comparison of Face-Centered Cubic and Hexagonal Close-Packed crystal structures with slicing planes and adjustable atom sizes.">
+    <meta property="og:image" content="https://fbardolph.github.io/fcc-hcp-viz/FCCImage.png">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="FCC vs HCP Crystal Structures">
+    <meta name="twitter:description" content="Interactive 3D comparison of FCC and HCP crystal structures.">
+    <meta name="twitter:image" content="https://fbardolph.github.io/fcc-hcp-viz/FCCImage.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0e1a;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        header {
+            text-align: center;
+            padding: 24px 20px 8px;
+            background: linear-gradient(180deg, #111827 0%, #0a0e1a 100%);
+        }
+        header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        header p { color: #9ca3af; margin-top: 6px; font-size: 0.95rem; }
+
+        .main-container {
+            display: flex;
+            gap: 0;
+            padding: 16px 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .panel {
+            flex: 1;
+            background: #111827;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #1f2937;
+            margin: 0 8px;
+        }
+        .panel-header {
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #1f2937;
+        }
+        .panel-header h2 { font-size: 1.15rem; font-weight: 600; }
+        .panel-header .badge {
+            font-size: 0.75rem;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .fcc-badge { background: #1e3a5f; color: #60a5fa; }
+        .hcp-badge { background: #3b1f4e; color: #c084fc; }
+
+        .canvas-wrap {
+            position: relative;
+            height: 420px;
+            cursor: grab;
+        }
+        .canvas-wrap:active { cursor: grabbing; }
+        .canvas-wrap canvas { display: block; }
+
+        /* Controls */
+        .controls {
+            padding: 14px 20px;
+            border-top: 1px solid #1f2937;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .ctrl-btn {
+            padding: 6px 14px;
+            border-radius: 8px;
+            border: 1px solid #374151;
+            background: #1f2937;
+            color: #d1d5db;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            user-select: none;
+        }
+        .ctrl-btn:hover { background: #374151; color: #fff; }
+        .ctrl-btn.active { background: #2563eb; border-color: #3b82f6; color: #fff; }
+        .ctrl-btn.active-purple { background: #7c3aed; border-color: #8b5cf6; color: #fff; }
+
+        /* Slider controls */
+        .slider-section {
+            padding: 10px 20px 14px;
+            border-top: 1px solid #1f2937;
+        }
+        .slider-section h4 {
+            font-size: 0.78rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 8px;
+        }
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .slider-row label {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            min-width: 70px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .slider-row .axis-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .slider-row input[type="range"] {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: #374151;
+            outline: none;
+        }
+        .slider-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            background: #60a5fa;
+            cursor: pointer;
+            border: 2px solid #1e3a5f;
+        }
+        .slider-row input[type="range"]::-moz-range-thumb {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            background: #60a5fa;
+            cursor: pointer;
+            border: 2px solid #1e3a5f;
+        }
+        .slider-row .val-display {
+            font-size: 0.75rem;
+            color: #6b7280;
+            min-width: 32px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Stacking info */
+        .info-section {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 28px 24px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .info-card {
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 12px;
+            padding: 20px 24px;
+        }
+        .info-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .info-card p {
+            font-size: 0.88rem;
+            color: #9ca3af;
+            line-height: 1.6;
+        }
+        .stacking-viz {
+            display: flex;
+            gap: 6px;
+            margin: 12px 0;
+            align-items: center;
+        }
+        .layer-chip {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .layer-a { background: #1e3a5f; color: #60a5fa; }
+        .layer-b { background: #1a3d2e; color: #34d399; }
+        .layer-c { background: #3b1f4e; color: #c084fc; }
+        .arrow-chip { color: #4b5563; font-size: 0.8rem; }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.82rem;
+            color: #9ca3af;
+        }
+        .legend-dot {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+        }
+
+        .highlight { color: #60a5fa; font-weight: 600; }
+        .highlight-purple { color: #c084fc; font-weight: 600; }
+
+        /* Comparison table */
+        .compare-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.85rem;
+        }
+        .compare-table th {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 1px solid #374151;
+            color: #9ca3af;
+            font-weight: 500;
+        }
+        .compare-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #1f2937;
+        }
+
+        @media (max-width: 900px) {
+            .main-container { flex-direction: column; }
+            .info-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>FCC vs HCP Crystal Structures</h1>
+    <p>Interactive 3D comparison &mdash; click and drag to rotate, scroll to zoom</p>
+</header>
+
+<div class="main-container">
+    <!-- FCC Panel -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Face-Centered Cubic (FCC)</h2>
+            <span class="badge fcc-badge">ABCABC</span>
+        </div>
+        <div class="canvas-wrap" id="fcc-canvas"></div>
+        <div class="controls">
+            <button class="ctrl-btn active" data-target="fcc" data-action="layers">Show Layers</button>
+            <button class="ctrl-btn" data-target="fcc" data-action="unitcell">Unit Cell</button>
+            <button class="ctrl-btn" data-target="fcc" data-action="reset">Reset View</button>
+        </div>
+        <div class="slider-section">
+            <h4>Slice Planes</h4>
+            <div class="slider-row">
+                <label><span class="axis-dot" style="background:#f87171;"></span> X Clip</label>
+                <input type="range" min="-4" max="4" step="0.05" value="4" data-target="fcc" data-axis="x">
+                <span class="val-display" id="fcc-x-val">Off</span>
+            </div>
+            <div class="slider-row">
+                <label><span class="axis-dot" style="background:#34d399;"></span> Y Clip</label>
+                <input type="range" min="-4" max="4" step="0.05" value="4" data-target="fcc" data-axis="y">
+                <span class="val-display" id="fcc-y-val">Off</span>
+            </div>
+            <div class="slider-row">
+                <label><span class="axis-dot" style="background:#60a5fa;"></span> Z Clip</label>
+                <input type="range" min="-4" max="4" step="0.05" value="4" data-target="fcc" data-axis="z">
+                <span class="val-display" id="fcc-z-val">Off</span>
+            </div>
+            <h4 style="margin-top:10px;">Atom Size</h4>
+            <div class="slider-row">
+                <label>Radius</label>
+                <input type="range" min="0.1" max="1.0" step="0.01" value="0.35" data-target="fcc" data-axis="size">
+                <span class="val-display" id="fcc-size-val">0.35</span>
+            </div>
+        </div>
+    </div>
+    <!-- HCP Panel -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Hexagonal Close-Packed (HCP)</h2>
+            <span class="badge hcp-badge">ABABAB</span>
+        </div>
+        <div class="canvas-wrap" id="hcp-canvas"></div>
+        <div class="controls">
+            <button class="ctrl-btn active-purple" data-target="hcp" data-action="layers">Show Layers</button>
+            <button class="ctrl-btn" data-target="hcp" data-action="unitcell">Unit Cell</button>
+            <button class="ctrl-btn" data-target="hcp" data-action="reset">Reset View</button>
+        </div>
+        <div class="slider-section">
+            <h4>Slice Planes</h4>
+            <div class="slider-row">
+                <label><span class="axis-dot" style="background:#f87171;"></span> X Clip</label>
+                <input type="range" min="-4" max="4" step="0.05" value="4" data-target="hcp" data-axis="x">
+                <span class="val-display" id="hcp-x-val">Off</span>
+            </div>
+            <div class="slider-row">
+                <label><span class="axis-dot" style="background:#34d399;"></span> Y Clip</label>
+                <input type="range" min="-4" max="4" step="0.05" value="4" data-target="hcp" data-axis="y">
+                <span class="val-display" id="hcp-y-val">Off</span>
+            </div>
+            <div class="slider-row">
+                <label><span class="axis-dot" style="background:#60a5fa;"></span> Z Clip</label>
+                <input type="range" min="-4" max="4" step="0.05" value="4" data-target="hcp" data-axis="z">
+                <span class="val-display" id="hcp-z-val">Off</span>
+            </div>
+            <h4 style="margin-top:10px;">Atom Size</h4>
+            <div class="slider-row">
+                <label>Radius</label>
+                <input type="range" min="0.1" max="1.0" step="0.01" value="0.35" data-target="hcp" data-axis="size">
+                <span class="val-display" id="hcp-size-val">0.35</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="info-section">
+    <div class="info-grid">
+        <div class="info-card">
+            <h3>Stacking Sequence</h3>
+            <p>The key difference is how layers of atoms stack on top of each other. Imagine placing oranges in a box &mdash; the first layer (A) has gaps. The second layer (B) sits in those gaps. The <span class="highlight">third layer</span> is where they differ:</p>
+            <div style="margin-top:14px;">
+                <p style="margin-bottom:6px;"><strong class="highlight">FCC &mdash; ABCABC</strong></p>
+                <div class="stacking-viz">
+                    <div class="layer-chip layer-a">A</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-b">B</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-c">C</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-a">A</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-b">B</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-c">C</div>
+                </div>
+                <p>The 3rd layer goes into <em>new</em> positions (C) &mdash; not above A or B. The pattern repeats every 3 layers.</p>
+            </div>
+            <div style="margin-top:14px;">
+                <p style="margin-bottom:6px;"><strong class="highlight-purple">HCP &mdash; ABABAB</strong></p>
+                <div class="stacking-viz">
+                    <div class="layer-chip layer-a">A</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-b">B</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-a">A</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-b">B</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-a">A</div>
+                    <span class="arrow-chip">&rarr;</span>
+                    <div class="layer-chip layer-b">B</div>
+                </div>
+                <p>The 3rd layer goes <em>directly above</em> the 1st layer (back to A). The pattern repeats every 2 layers.</p>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <h3>Unit Cell Geometry</h3>
+            <p>The <strong>unit cell</strong> is the smallest repeating "building block" that tiles to fill all space.</p>
+            <table class="compare-table">
+                <tr><th></th><th class="highlight">FCC</th><th class="highlight-purple">HCP</th></tr>
+                <tr><td>Shape</td><td>Cube</td><td>Hexagonal prism</td></tr>
+                <tr><td>Atoms per cell</td><td>4</td><td>6</td></tr>
+                <tr><td>Coordination #</td><td>12</td><td>12</td></tr>
+                <tr><td>Packing efficiency</td><td>74%</td><td>74%</td></tr>
+                <tr><td>Lattice params</td><td>a = b = c</td><td>a = b &ne; c</td></tr>
+                <tr><td>Example metals</td><td>Cu, Al, Au, Ni</td><td>Ti, Zn, Mg, Co</td></tr>
+            </table>
+            <p style="margin-top: 12px;">Both structures are <strong>equally dense</strong> (74% packing). The difference lies in symmetry: FCC has more slip systems, making those metals generally more <strong>ductile</strong> (easier to bend).</p>
+        </div>
+
+        <div class="info-card" style="grid-column: 1 / -1;">
+            <h3>Color Legend</h3>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-dot" style="background:#60a5fa;"></div> Layer A atoms</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#34d399;"></div> Layer B atoms</div>
+                <div class="legend-item"><div class="legend-dot" style="background:#c084fc;"></div> Layer C atoms (FCC only)</div>
+                <div class="legend-item"><div class="legend-dot" style="background:rgba(255,255,255,0.15);border:1px solid #555;"></div> Unit cell wireframe</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+    }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─── Color palette ───
+const COL_A = 0x60a5fa;  // blue
+const COL_B = 0x34d399;  // green
+const COL_C = 0xc084fc;  // purple
+
+const BASE_RADIUS = 0.35;
+const CLIP_MAX = 4; // slider max = "off"
+
+// ─── Helper: create a scene inside a container ───
+function createViewer(containerId) {
+    const container = document.getElementById(containerId);
+    const w = container.clientWidth, h = container.clientHeight;
+
+    // Clipping planes for this viewer (X, Y, Z)
+    const clipPlanes = [
+        new THREE.Plane(new THREE.Vector3(-1, 0, 0), CLIP_MAX),  // X
+        new THREE.Plane(new THREE.Vector3( 0,-1, 0), CLIP_MAX),  // Y
+        new THREE.Plane(new THREE.Vector3( 0, 0,-1), CLIP_MAX),  // Z
+    ];
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
+    camera.position.set(5, 5, 7);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x111827);
+    renderer.localClippingEnabled = true;
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 3;
+    controls.maxDistance = 20;
+
+    // Lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.9);
+    dl.position.set(5, 8, 5);
+    scene.add(dl);
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        const nw = container.clientWidth, nh = container.clientHeight;
+        camera.aspect = nw / nh;
+        camera.updateProjectionMatrix();
+        renderer.setSize(nw, nh);
+    });
+
+    return { scene, camera, controls, renderer, clipPlanes };
+}
+
+// ─── Sphere factory (with clipping support) ───
+function makeSphere(color, clipPlanes) {
+    const geo = new THREE.SphereGeometry(BASE_RADIUS, 32, 32);
+    const mat = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.3,
+        metalness: 0.4,
+        clippingPlanes: clipPlanes,
+        clipShadows: true,
+        side: THREE.DoubleSide, // show interior cross-section
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.baseScale = 1.0; // track intended scale
+    return mesh;
+}
+
+// ─── Build hexagonal close-packed layer at given y ───
+function hexLayer(group, y, color, rows, cols, offsetX, offsetZ, clipPlanes, allAtoms) {
+    const dx = 1.0;
+    const dz = Math.sqrt(3) / 2;
+    for (let r = -rows; r <= rows; r++) {
+        for (let c = -cols; c <= cols; c++) {
+            const x = c * dx + (r % 2 !== 0 ? 0.5 : 0) + offsetX;
+            const z = r * dz + offsetZ;
+            const sphere = makeSphere(color, clipPlanes);
+            sphere.position.set(x, y, z);
+            group.add(sphere);
+            allAtoms.push(sphere);
+        }
+    }
+}
+
+// ─── FCC Structure (ABCABC stacking) ───
+function buildFCC(scene, clipPlanes) {
+    const layerGroup = new THREE.Group();
+    const unitCellGroup = new THREE.Group();
+    unitCellGroup.visible = false;
+    const allAtoms = [];
+
+    const spacing = 0.816;
+    const offsets = {
+        A: [0, 0],
+        B: [0.5, Math.sqrt(3) / 6],
+        C: [0.0, Math.sqrt(3) / 3],
+    };
+    const colors = { A: COL_A, B: COL_B, C: COL_C };
+    const sequence = ['A', 'B', 'C', 'A', 'B', 'C'];
+
+    sequence.forEach((layerName, i) => {
+        const off = offsets[layerName];
+        hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms);
+    });
+
+    // Center the structure
+    const box = new THREE.Box3().setFromObject(layerGroup);
+    const center = box.getCenter(new THREE.Vector3());
+    layerGroup.position.sub(center);
+
+    // Unit cell wireframe (cubic)
+    const a = 1.0;
+    const cubeGeo = new THREE.BoxGeometry(a * 1.414, a * 1.414, a * 1.414);
+    const cubeEdges = new THREE.EdgesGeometry(cubeGeo);
+    const cubeLine = new THREE.LineSegments(cubeEdges, new THREE.LineBasicMaterial({ color: 0x60a5fa, linewidth: 2, transparent: true, opacity: 0.6 }));
+    unitCellGroup.add(cubeLine);
+
+    const facePositions = [
+        [0, 0, a*0.707], [0, 0, -a*0.707],
+        [a*0.707, 0, 0], [-a*0.707, 0, 0],
+        [0, a*0.707, 0], [0, -a*0.707, 0],
+    ];
+    const cornerPositions = [];
+    for (let x = -1; x <= 1; x += 2)
+        for (let y = -1; y <= 1; y += 2)
+            for (let z = -1; z <= 1; z += 2)
+                cornerPositions.push([x * a * 0.707, y * a * 0.707, z * a * 0.707]);
+
+    cornerPositions.forEach(p => {
+        const s = makeSphere(COL_A, clipPlanes);
+        s.scale.setScalar(0.8);
+        s.userData.baseScale = 0.8;
+        s.position.set(...p);
+        unitCellGroup.add(s);
+        allAtoms.push(s);
+    });
+    facePositions.forEach(p => {
+        const s = makeSphere(COL_B, clipPlanes);
+        s.scale.setScalar(0.8);
+        s.userData.baseScale = 0.8;
+        s.position.set(...p);
+        unitCellGroup.add(s);
+        allAtoms.push(s);
+    });
+
+    scene.add(layerGroup);
+    scene.add(unitCellGroup);
+
+    return { layerGroup, unitCellGroup, allAtoms };
+}
+
+// ─── HCP Structure (ABABAB stacking) ───
+function buildHCP(scene, clipPlanes) {
+    const layerGroup = new THREE.Group();
+    const unitCellGroup = new THREE.Group();
+    unitCellGroup.visible = false;
+    const allAtoms = [];
+
+    const spacing = 0.816;
+    const offsets = {
+        A: [0, 0],
+        B: [0.5, Math.sqrt(3) / 6],
+    };
+    const colors = { A: COL_A, B: COL_B };
+    const sequence = ['A', 'B', 'A', 'B', 'A', 'B'];
+
+    sequence.forEach((layerName, i) => {
+        const off = offsets[layerName];
+        hexLayer(layerGroup, i * spacing, colors[layerName], 2, 2, off[0], off[1], clipPlanes, allAtoms);
+    });
+
+    const box = new THREE.Box3().setFromObject(layerGroup);
+    const center = box.getCenter(new THREE.Vector3());
+    layerGroup.position.sub(center);
+
+    // Hexagonal prism unit cell wireframe
+    const a = 1.0;
+    const c = spacing * 2;
+    const hexPoints = [];
+    for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i + Math.PI / 6;
+        hexPoints.push(new THREE.Vector3(Math.cos(angle) * a * 0.58, 0, Math.sin(angle) * a * 0.58));
+    }
+
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.6 });
+
+    for (let i = 0; i < 6; i++) {
+        const p1 = hexPoints[i].clone(); p1.y = -c / 2;
+        const p2 = hexPoints[(i + 1) % 6].clone(); p2.y = -c / 2;
+        unitCellGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([p1, p2]), lineMat));
+    }
+    for (let i = 0; i < 6; i++) {
+        const p1 = hexPoints[i].clone(); p1.y = c / 2;
+        const p2 = hexPoints[(i + 1) % 6].clone(); p2.y = c / 2;
+        unitCellGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([p1, p2]), lineMat));
+    }
+    for (let i = 0; i < 6; i++) {
+        const p1 = hexPoints[i].clone(); p1.y = -c / 2;
+        const p2 = hexPoints[i].clone(); p2.y = c / 2;
+        unitCellGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([p1, p2]), lineMat));
+    }
+
+    hexPoints.forEach(p => {
+        const s = makeSphere(COL_A, clipPlanes);
+        s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.position.set(p.x, -c / 2, p.z);
+        unitCellGroup.add(s); allAtoms.push(s);
+    });
+    hexPoints.forEach(p => {
+        const s = makeSphere(COL_A, clipPlanes);
+        s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.position.set(p.x, c / 2, p.z);
+        unitCellGroup.add(s); allAtoms.push(s);
+    });
+    for (let i = 0; i < 3; i++) {
+        const angle = (Math.PI / 3) * (2 * i) + Math.PI / 6 + Math.PI / 3;
+        const s = makeSphere(COL_B, clipPlanes);
+        s.scale.setScalar(0.8); s.userData.baseScale = 0.8;
+        s.position.set(Math.cos(angle) * a * 0.33, 0, Math.sin(angle) * a * 0.33);
+        unitCellGroup.add(s); allAtoms.push(s);
+    }
+
+    scene.add(layerGroup);
+    scene.add(unitCellGroup);
+
+    return { layerGroup, unitCellGroup, allAtoms };
+}
+
+// ─── Initialize viewers ───
+const fccViewer = createViewer('fcc-canvas');
+const hcpViewer = createViewer('hcp-canvas');
+
+const fccGroups = buildFCC(fccViewer.scene, fccViewer.clipPlanes);
+const hcpGroups = buildHCP(hcpViewer.scene, hcpViewer.clipPlanes);
+
+const viewers = { fcc: fccViewer, hcp: hcpViewer };
+const groups  = { fcc: fccGroups, hcp: hcpGroups };
+
+// ─── Button controls ───
+const state = {
+    fcc: { layers: true, unitcell: false },
+    hcp: { layers: true, unitcell: false },
+};
+
+document.querySelectorAll('.ctrl-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const target = btn.dataset.target;
+        const action = btn.dataset.action;
+        const g = groups[target];
+        const v = viewers[target];
+        const activeClass = target === 'fcc' ? 'active' : 'active-purple';
+
+        if (action === 'reset') {
+            v.camera.position.set(5, 5, 7);
+            v.controls.reset();
+            // Also reset clip sliders
+            document.querySelectorAll(`input[data-target="${target}"][data-axis]`).forEach(sl => {
+                if (sl.dataset.axis === 'size') return;
+                sl.value = CLIP_MAX;
+                document.getElementById(`${target}-${sl.dataset.axis}-val`).textContent = 'Off';
+            });
+            const axisIdx = { x: 0, y: 1, z: 2 };
+            Object.values(axisIdx).forEach(i => { v.clipPlanes[i].constant = CLIP_MAX; });
+            return;
+        }
+
+        if (action === 'layers') {
+            state[target].layers = !state[target].layers;
+            g.layerGroup.visible = state[target].layers;
+            btn.classList.toggle(activeClass);
+        }
+
+        if (action === 'unitcell') {
+            state[target].unitcell = !state[target].unitcell;
+            g.unitCellGroup.visible = state[target].unitcell;
+            btn.classList.toggle(activeClass);
+        }
+    });
+});
+
+// ─── Slider controls: clipping planes & atom size ───
+const axisIdx = { x: 0, y: 1, z: 2 };
+
+document.querySelectorAll('input[type="range"][data-target]').forEach(slider => {
+    slider.addEventListener('input', () => {
+        const target = slider.dataset.target;
+        const axis = slider.dataset.axis;
+        const val = parseFloat(slider.value);
+
+        if (axis === 'size') {
+            // Atom size: rescale all spheres
+            const scaleFactor = val / BASE_RADIUS;
+            const display = document.getElementById(`${target}-size-val`);
+            display.textContent = val.toFixed(2);
+            groups[target].allAtoms.forEach(atom => {
+                atom.scale.setScalar(atom.userData.baseScale * scaleFactor);
+            });
+            return;
+        }
+
+        // Clipping plane
+        const clipPlane = viewers[target].clipPlanes[axisIdx[axis]];
+        const display = document.getElementById(`${target}-${axis}-val`);
+
+        if (val >= CLIP_MAX - 0.01) {
+            clipPlane.constant = 100; // effectively off
+            display.textContent = 'Off';
+        } else {
+            clipPlane.constant = val;
+            display.textContent = val.toFixed(1);
+        }
+    });
+});
+</script>
+</body>
+</html>
